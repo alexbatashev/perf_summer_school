@@ -8,8 +8,17 @@ project(
 
 set(CMAKE_CXX_STANDARD 17)
 
+if (UNIX)
+  set(CMAKE_CXX_FLAGS "-fno-omit-frame-pointer ${CMAKE_CXX_FLAGS}")
+  if (${CMAKE_BUILD_TYPE} STREQUAL "Release")
+    set(CMAKE_CXX_FLAGS "-gline-tables-only ${CMAKE_CXX_FLAGS}")
+  endif()
+
+endif()
+
 include(cmake/CPM.cmake)
 
+set(BENCHMARK_ENABLE_WERROR OFF)
 set(BENCHMARK_ENABLE_TESTING OFF)
 
 CPMAddPackage("gh:google/benchmark@1.8.4")
