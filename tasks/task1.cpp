@@ -7,6 +7,8 @@
 #define VECTORIZED __attribute__((target("arch=rv64gcv")))
 #elif defined(__x86_64)
 #define VECTORIZED __attribute__((target("arch=skylake")))
+#else
+#define VECTORIZED
 #endif
 
 #include <cmath>

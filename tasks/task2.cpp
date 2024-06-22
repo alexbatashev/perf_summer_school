@@ -313,6 +313,39 @@ polynomial<T>::bit_reverse(const polynomial<complex<T>> &poly) {
   return result;
 }
 
+template<typename T>
+complex<T> mul(complex<T> a, complex<T> b)  {
+  using vec = T __attribute__((ext_vector_type(2)));
+
+    vec ar = a.real();
+    vec bv = {b.real(), b.imag()};
+    vec ai = a.imag();
+
+    vec mul1 = ar * bv;
+    vec mul2 = ai * bv;
+    mul2 = __builtin_shufflevector(mul2, mul2, 1, 0);
+    auto diff = mul1 - mul2;
+    auto sum = mul1 + mul2;
+
+    return complex<T>(diff[0], sum[1]);
+}
+
+template<typename T>
+auto add_sub(complex<T> a, complex<T> b)  {
+  using vec = T __attribute__((ext_vector_type(2)));
+
+    vec av = {a.real(), a.imag()};
+    vec bv = {b.real(), b.imag()};
+
+    vec sum = av + bv;
+    vec diff = av - bv;
+
+    return std::make_pair(
+      complex<T>(sum[0], sum[1]),
+      complex<T>(diff[0], diff[1])
+    );
+}
+
 // Fast Fourier Transform of polynomial<T> to polynomial< complex<T> >
 template <typename T>
 polynomial<complex<T>> polynomial<T>::fft(const polynomial<T> &poly) {
@@ -329,12 +362,13 @@ polynomial<complex<T>> polynomial<T>::fft(const polynomial<T> &poly) {
     wm = exp(PI2I / complex<T>(m));
     w = 1.0;
 
-    for (j = 0; j <= (m2 - 1); ++j) {
+    for (j = 0; j <= (m2 - 1); j += 1) {
       for (k = j; k <= poly.degree() - 1; k += m) {
-        t = w * result[k + m2];
+        t = mul(w, result[k + m2]);
         u = result[k];
-        result[k] = u + t;
-        result[k + m2] = u - t;
+        auto [tmp1, tmp2] = add_sub(u, t);
+        result[k] = tmp1;
+        result[k + m2] = tmp2;
       }
 
       w *= wm;
@@ -366,10 +400,11 @@ polynomial<T>::inverse_fft(const polynomial<complex<T>> &poly) {
 
     for (j = 0; j <= (m2 - 1); ++j) {
       for (k = j; k <= poly.degree() - 1; k += m) {
-        t = w * result[k + m2];
+        t = mul(w, result[k + m2]);
         u = result[k];
-        result[k] = u + t;
-        result[k + m2] = u - t;
+        auto [tmp1, tmp2] = add_sub(u, t);
+        result[k] = tmp1;
+        result[k + m2] = tmp2;
       }
 
       w *= wm;
@@ -377,6 +412,9 @@ polynomial<T>::inverse_fft(const polynomial<complex<T>> &poly) {
 
     m <<= 1;
     m2 <<= 1;
+
+    __builtin_prefetch(result.data());
+    __builtin_prefetch(result.data() + m2);
   }
 
   for (j = 0; j < poly.degree(); ++j)
@@ -445,6 +483,7 @@ polynomial<T> &polynomial<T>::operator-=(const polynomial<T> &poly) {
 template <typename T>
 polynomial<T> &polynomial<T>::operator*=(const polynomial<T> &poly) {
   *this = (*this) * poly;
+  return *this;
 }
 
 template class polynomial<double>;

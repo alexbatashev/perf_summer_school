@@ -104,6 +104,8 @@ public:
   polynomial<T> &operator-=(const polynomial<T> &poly);
   polynomial<T> &operator*=(const polynomial<T> &poly);
 
+  const T* data() const { return m_coeff; };
+
 protected:
   // coefficients
   T *m_coeff;
