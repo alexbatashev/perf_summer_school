@@ -2,32 +2,34 @@
 
 #include <benchmark/benchmark.h>
 #include <random>
+#include <vector>
 
 inline constexpr int TEST_SIZE = 50000;
 
-static void fft(benchmark::State &state) {
+static void evt_dispatch(benchmark::State &state) {
   std::random_device rd{};
   auto eng = std::mt19937{rd()};
-  auto gen = std::uniform_real_distribution{-1.0, 1.0};
+  auto gen = std::uniform_int_distribution{0, 63};
 
-  // generate random polynomials
-  polynomial<double> poly1(TEST_SIZE);
-  polynomial<double> poly2(TEST_SIZE);
-  polynomial<double> poly3(TEST_SIZE * 2 - 1);
+  std::vector<EventID> ids;
+  ids.reserve(100);
 
-  for (int n = 0; n < TEST_SIZE; ++n) {
-    poly1[n] = gen(eng);
-    poly2[n] = gen(eng);
-  }
+  EventDispatcher d;
 
   for (auto _ : state) {
-    poly3 = poly1 * poly2;
-    benchmark::DoNotOptimize(poly3);
+    if (!d.hasFreeSlots()) {
+      size_t idx = gen(eng);
+      d.release(ids[idx]);
+      ids.erase(std::next(ids.begin(), idx));
+    }
+    
+    ids.push_back(d.acquire());
+    // std::cout << "size = " << ids.size() << "\n";
   }
 }
 
 // Register the function as a benchmark
-BENCHMARK(fft)->Unit(benchmark::kMicrosecond);
+BENCHMARK(evt_dispatch)->Unit(benchmark::kMicrosecond);
 
 // Run the benchmark
 BENCHMARK_MAIN();
