@@ -7,7 +7,6 @@
 #include <utility>
 
 #ifdef __riscv
-#include <riscv_vector.h>
 #define VECTORIZED
 // #define VECTORIZED __attribute__((target("arch=rv64gcv")))
 #elif defined(__x86_64)
@@ -33,20 +32,12 @@ struct simd_native {
 #if !defined(__clang__)
 template <>
 struct simd_native<uint8_t, 8> {
-#ifdef __riscv
-  using type = vuint8m1_t;
-#else
   using type = uint8_t __attribute__((vector_size(8 * sizeof(uint8_t))));
-#endif
 };
 
 template <>
 struct simd_native<uint16_t, 8> {
-#ifdef __riscv
-  using type = vuint16m1_t;
-#else
   using type = uint16_t __attribute__((vector_size(8 * sizeof(uint16_t))));
-#endif
 };
 #endif
 }
