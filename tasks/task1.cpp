@@ -3,8 +3,13 @@
 
 #include "task1.hpp"
 
+#include <iostream>
+#include <utility>
+
 #ifdef __riscv
-#define VECTORIZED __attribute__((target("arch=rv64gcv")))
+#include <riscv_vector.h>
+#define VECTORIZED
+// #define VECTORIZED __attribute__((target("arch=rv64gcv")))
 #elif defined(__x86_64)
 #define VECTORIZED __attribute__((target("arch=skylake")))
 #else
@@ -17,62 +22,130 @@
 
 constexpr int N = 40000;
 
-using int8x8_t = uint8_t __attribute__((ext_vector_type(8)));
-using int16x8_t = uint16_t __attribute__((ext_vector_type(8)));
+namespace detail {
+template <typename T, size_t Size>
+struct simd_native {
+#if defined(__clang__)
+  using type = T __attribute__((ext_vector_type(Size)));
+#endif
+};
 
-template<typename T>
-__attribute__((always_inline)) constexpr T shift_left(T x, int len) {
-  T result = 0;
-  const int vecLen = __builtin_vectorelements(T);
+#if !defined(__clang__)
+template <>
+struct simd_native<uint8_t, 8> {
+#ifdef __riscv
+  using type = vuint8m1_t;
+#else
+  using type = uint8_t __attribute__((vector_size(8 * sizeof(uint8_t))));
+#endif
+};
 
-  for (int i = 0; i < vecLen - len; i++) {
-    result[i+len] = x[i];
-  }
-
-  return result;
+template <>
+struct simd_native<uint16_t, 8> {
+#ifdef __riscv
+  using type = vuint16m1_t;
+#else
+  using type = uint16_t __attribute__((vector_size(8 * sizeof(uint16_t))));
+#endif
+};
+#endif
 }
 
-template<typename T>
-constexpr T scan_add(T x) {
-  int vecLen = __builtin_vectorelements(T);
-  int numIter = __builtin_ctz(vecLen);
+template <typename T>
+concept scalar = std::integral<T> || std::floating_point<T>;
 
-  T shift = x;
+template <scalar T, size_t Size>
+class simd {
+public:
+  using native_type = typename detail::simd_native<T, Size>::type;
+
+  simd() = default;
+
+  explicit simd(T scalar) : data_(native_type{scalar}) {}
+
+  constexpr size_t size() const {
+    return Size;
+  }
+
+  T operator[](size_t idx) const {
+    return data_[idx];
+  }
+
+  template <typename U>
+  simd<U, Size> convert() const {
+    auto cvt = __builtin_convertvector(data_, typename detail::simd_native<U, Size>::type);
+    return simd<U, Size>(cvt);
+  }
+
+  static simd load(const T *ptr) {
+    simd<T, Size> result;
+
+    #pragma GCC ivdep
+    for (size_t i = 0; i < Size; i++) {
+      result.data_[i] = ptr[i];
+    }
+
+    return result;
+  }
+
+  void store(T *ptr) const {
+    #pragma GCC ivdep
+    for (size_t i = 0; i < Size; i++) {
+      ptr[i] = data_[i];
+    }
+  }
+
+  simd<T, Size> shift_left(size_t len) const {
+    native_type result{0};
+
+    for (int i = 0; i < size() - len; i++) {
+      result[i+len] = data_[i];
+    }
+
+    return simd<T, Size>(result);
+  }
+
+  simd<T, Size> operator-(const simd<T, Size> &other) {
+    native_type res = data_ - other.data_;
+    return simd<T, Size>(res);
+  }
+
+  simd<T, Size> operator+(const simd<T, Size> &other) {
+    native_type res = data_ + other.data_;
+    return simd<T, Size>(res);
+  }
+
+private:
+  template <scalar U, size_t S>
+  friend class simd;
+  template <scalar U, size_t S, typename Op>
+  simd<U, S> scan(const simd<T, S> x, Op op);
+
+  simd(native_type data) : data_(data) {}
+
+  native_type data_{0};
+};
+
+template <scalar T, size_t Size, typename Op = std::plus<>>
+simd<T, Size> scan(const simd<T, Size> x, Op op = Op()) {
+  size_t numIter = __builtin_ctz(x.size());
+
+  auto shift = x;
   int mul = 1;
 
-  #pragma loop unroll(full)
+  #pragma clang loop unroll(full)
   for (int i = 0; i < numIter; i++) {
-      shift = shift + shift_left(shift, mul);
-      mul <<= 1;
+    shift = shift + shift.shift_left(mul);
+    mul <<= 1;
   }
 
   return shift;
 }
 
-template<typename T, typename P>
-T vload(const P *ptr) {
-  int vecLen = __builtin_vectorelements(T);
-
-  T result{0};
-  for (int i = 0; i < vecLen; i++) {
-    result[i] = ptr[i];
-  }
-
-  return result;
-}
-
-template<typename T, typename P> void vstore(P *ptr, T x) {
-  int vecLen = __builtin_vectorelements(T);
-
-  for (int i = 0; i < vecLen; i++) {
-    ptr[i] = x[i];
-  }
-}
-
 VECTORIZED void imageSmoothing_vector(const InputVector &input, uint8_t radius,
                     OutputVector &output) {
   int pos = 0;
-  int currentSum = 0;
+  uint16_t currentSum = 0;
   int size = static_cast<int>(input.size());
 
   // 1. left border - time spend in this loop can be ignored, no need to
@@ -90,28 +163,27 @@ VECTORIZED void imageSmoothing_vector(const InputVector &input, uint8_t radius,
   // 2. main loop.
   limit = size - radius;
 
-  constexpr int VL = 8;
+  constexpr size_t VL = 8;
   const uint8_t* subtractPtr = input.data() + pos - radius - 1;
   const uint8_t* addPtr = input.data() + pos + radius;
   uint16_t* outputPtr = output.data() + pos;
-  int16x8_t current = currentSum;
+  simd<uint16_t, 8> current{currentSum};
 
   int i = 0;
   for (; i + 7 < limit - pos; i += VL) {
-    int8x8_t sub_8 = vload<int8x8_t>(subtractPtr + i);
-    int16x8_t sub = __builtin_convertvector(sub_8, int16x8_t);
-    int8x8_t add_8 = vload<int8x8_t>(addPtr + i);
-    int16x8_t add = __builtin_convertvector(add_8, int16x8_t);
+    auto sub_8 = simd<uint8_t, VL>::load(subtractPtr + i);
+    auto sub = sub_8.convert<uint16_t>();
+    auto add_8 = simd<uint8_t, VL>::load(addPtr + i);
+    auto add = add_8.convert<uint16_t>();
 
-    int16x8_t diff = add - sub;
+    auto diff = add - sub;
+    auto scan = ::scan(diff);
 
-    int16x8_t scan = scan_add(diff);
-    int16x8_t result = scan + current;
-
-    vstore(outputPtr + i, result);
+    auto result = scan + current;
+    result.store(outputPtr + i);
 
     currentSum = result[7];
-    current = currentSum;
+    current = simd<uint16_t, VL>(currentSum);
   }
 
   pos += i;

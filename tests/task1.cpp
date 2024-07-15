@@ -61,6 +61,16 @@ TEST_CASE("Smoke test", "[task1]") {
 
   REQUIRE(expected.size() == received.size());
 
+  // std::cout << "expected: ";
+  // for (auto v : expected)
+  //   std::cout << v << " ";
+  // std::cout << "\n";
+  //
+  // std::cout << "received: ";
+  // for (auto v : received)
+  //   std::cout << v << " ";
+  // std::cout << "\n";
+
   auto cmp_result =
       std::mismatch(expected.begin(), expected.end(), received.begin());
   REQUIRE(cmp_result.first == expected.end());
