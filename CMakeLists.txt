@@ -32,12 +32,13 @@ add_executable(task1 tasks/task1_bench.cpp)
 target_link_libraries(task1 PRIVATE task1_lib benchmark::benchmark)
 target_include_directories(task1_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tasks)
 
-add_library(task2_lib STATIC tasks/task2.cpp)
+add_library(task2_lib INTERFACE)
+target_include_directories(task2_lib INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/tasks)
+
 add_executable(task2 tasks/task2_bench.cpp)
 target_link_libraries(task2 PRIVATE task2_lib benchmark::benchmark)
-target_include_directories(task2_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tasks)
 
-add_executable(tests tests/task1.cpp tests/task2.cpp)
+add_executable(tests tests/task1.cpp)
 target_link_libraries(tests PRIVATE task1_lib task2_lib Catch2::Catch2WithMain)
 
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
